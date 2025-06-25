@@ -1,0 +1,179 @@
+// RGB LED Pins
+#define R1 2
+#define G1 6
+#define B1 5
+#define R2 11
+#define G2 9
+#define B2 10
+
+const int buttonPin = A3;  // Push button
+bool buttonState = false;  // Track button toggle state
+const int voltagePin = A5;  // Simulated voltage input
+const int relay1 = 12;      // Already used relay
+int voltageThreshold = 800; // Simulated high voltage value (adjust as needed)
+
+// PIR Sensor Pin
+const int pirPin = 7;
+
+// Relay Pins
+const int rele1 = 13;
+const int rele2 = 12;
+
+// Potentiometer Pins
+const int pot1 = A0;
+const int pot2 = A4;
+
+// Sensor Pins (optional)
+const int medida = A1;
+const int medida2 = A2;
+
+// Ultrasonic Sensor Pins
+const int trigPin = 3;
+const int echoPin = 4;
+
+// Thresholds
+const int maxThreshold = 200;
+const int minThreshold = 30;
+
+// Variables
+int pwm, pwm2;
+bool objectNear = false;  // Hysteresis state
+const int approachThreshold = 75;
+const int leaveThreshold = 20;
+
+// 🟢 Gas Sensor
+const int gasSensorPin = A1;  // Analog output pin of gas sensor
+int gasLevel = 0;
+const int gasThreshold = 400;  // Adjust based on testing
+
+void setup() {
+  pinMode(R1, OUTPUT); pinMode(G1, OUTPUT); pinMode(B1, OUTPUT);
+  pinMode(R2, OUTPUT); pinMode(G2, OUTPUT); pinMode(B2, OUTPUT);
+
+  pinMode(rele1, OUTPUT); pinMode(rele2, OUTPUT);
+
+  pinMode(pot1, INPUT); pinMode(pot2, INPUT);
+  pinMode(medida, INPUT); pinMode(medida2, INPUT);
+
+  pinMode(trigPin, OUTPUT); pinMode(echoPin, INPUT);
+  pinMode(pirPin, INPUT);
+  pinMode(buttonPin, INPUT_PULLUP);  // Internal pull-up for button
+
+  pinMode(gasSensorPin, INPUT);  // Optional, for clarity
+
+  Serial.begin(9600);
+  Serial.println("System Initialized...");
+   pinMode(relay1, OUTPUT);
+  Serial.begin(9600);
+}
+
+// Update RGB LED color
+void updateRGB(int rPin, int gPin, int bPin, int value) {
+  if (value >= maxThreshold) {
+    analogWrite(rPin, 210); analogWrite(gPin, 66); analogWrite(bPin, 193);
+    delay(500);
+    analogWrite(rPin, 0); analogWrite(gPin, 0); analogWrite(bPin, 0);
+    delay(500);
+  } else if (value >= minThreshold) {
+    analogWrite(rPin, LOW); analogWrite(gPin, LOW); analogWrite(bPin, LOW);
+  }
+}
+
+// Relay control logic based on potentiometer
+void controlRelay(int relayPin, int value, const char* name) {
+  if (value >= maxThreshold) {
+    digitalWrite(relayPin, LOW); // OFF
+    Serial.print(name); Serial.println(" = OFF (Relay Open)");
+  } else if (value >= minThreshold) {
+    digitalWrite(relayPin, HIGH); // ON
+    Serial.print(name); Serial.println(" = ON (Relay Closed)");
+  }
+}
+
+// Get distance from ultrasonic sensor
+int getDistanceCM() {
+  digitalWrite(trigPin, LOW);
+  delayMicroseconds(2);
+  digitalWrite(trigPin, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(trigPin, LOW);
+  long duration = pulseIn(echoPin, HIGH);
+  int distance = duration * 0.034 / 2;
+  return distance;
+}
+
+void loop() {
+  // Read potentiometers
+  pwm  = map(analogRead(pot1), 0, 1023, 0, 255);
+  pwm2 = map(analogRead(pot2), 0, 1023, 0, 255);
+
+  // Update RGB LEDs
+  updateRGB(R1, G1, B1, pwm);
+  updateRGB(R2, G2, B2, pwm2);
+
+  // Relay 2 still follows potentiometer
+  controlRelay(rele2, pwm2, "Relay 2");
+
+  // Read current distance from ultrasonic
+  int distance = getDistanceCM();
+
+  // Hysteresis-based relay control
+  if (distance < approachThreshold && !objectNear) {
+    objectNear = true;
+    digitalWrite(rele1, HIGH);
+    Serial.println("Relay 1 ON - Object Approaching");
+  } else if (distance > leaveThreshold && objectNear) {
+    objectNear = false;
+    digitalWrite(rele1, LOW);
+    Serial.println("Relay 1 OFF - Object Left");
+  }
+
+  // Read PIR sensor
+  int motionDetected = digitalRead(pirPin);
+  if (motionDetected == HIGH) {
+    digitalWrite(rele2, HIGH);
+    Serial.println("Motion Detected! Relay 2 Forced ON by PIR");
+  }
+
+  // Button toggle for relay1
+  if (digitalRead(buttonPin) == LOW) {
+    buttonState = !buttonState;
+    digitalWrite(rele1, buttonState ? HIGH : LOW);
+    Serial.println(buttonState ? "Button Pressed: Relay ON" : "Button Pressed: Relay OFF");
+    delay(300);  // debounce
+  }
+
+  // Optional sensor read
+  int amp  = analogRead(medida);
+  int amp2 = analogRead(medida2);
+
+  // 🟢 Gas Sensor Read
+  gasLevel = analogRead(gasSensorPin);
+  Serial.print(" | Gas Level = ");
+  Serial.print(gasLevel);
+  if (gasLevel > gasThreshold) {
+    Serial.print(" --> ⚠️ GAS DETECTED!");
+    digitalWrite(rele2, HIGH);  // Relay 2 can be buzzer or fan
+  }
+
+  // Serial Debug
+  Serial.print(" | PWM1 = "); Serial.print(pwm);
+  Serial.print(" | PWM2 = "); Serial.print(pwm2);
+  Serial.print(" | AMP1 = "); Serial.print(amp);
+  Serial.print(" | AMP2 = "); Serial.print(amp2);
+  Serial.print(" | Distance = "); Serial.print(distance); Serial.print(" cm");
+  Serial.print(" | PIR = "); Serial.println(motionDetected ? "MOTION" : "NO MOTION");
+
+  delay(1000);  // 1s delay for readability
+  
+  int sensorValue = analogRead(voltagePin);
+  Serial.println(sensorValue);
+
+  if (sensorValue > voltageThreshold) {
+    digitalWrite(relay1, LOW); // Turn OFF relay
+  } else {
+    digitalWrite(relay1, HIGH); // Turn ON relay
+  }
+
+  delay(300);
+}
